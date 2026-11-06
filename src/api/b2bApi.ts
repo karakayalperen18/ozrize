@@ -52,7 +52,7 @@ export interface B2bApi {
   rejectQuote(quoteId: string, note?: string): Promise<QuoteRequest>;
   counterQuote(
     quoteId: string,
-    input: { unitPrice: number; paymentTerm: PaymentTerm; note: string },
+    input: { itemId?: string; unitPrice: number; paymentTerm: PaymentTerm; note: string },
   ): Promise<QuoteRequest>;
   getCredit(): Promise<{ credit: CustomerCredit; check: CreditCheck }>;
   getLedger(params?: { from?: string; to?: string }): Promise<LedgerEntry[]>;
@@ -177,10 +177,11 @@ const mockB2bApi: B2bApi = {
   async counterQuote(quoteId, input) {
     const target = mockQuotes.find((quote) => quote.id === quoteId);
     if (!target) throw new Error('Teklif bulunamadı.');
-    const firstId = target.items[0]?.id ?? null;
+    const targetItemId = input.itemId ?? target.items[0]?.id ?? null;
 
     const items = target.items.map((item) => {
-      const targetUnitPrice = item.id === firstId ? round2(input.unitPrice) : item.targetUnitPrice;
+      const isTarget = item.id === targetItemId || item.productId === targetItemId;
+      const targetUnitPrice = isTarget ? round2(input.unitPrice) : item.targetUnitPrice;
       return {
         ...item,
         targetUnitPrice,
@@ -201,7 +202,7 @@ const mockB2bApi: B2bApi = {
       counterOffer: {
         id: `${quoteId}-co-${Date.now()}`,
         quoteId,
-        itemId: firstId,
+        itemId: targetItemId,
         proposedUnitPrice: round2(input.unitPrice),
         paymentTerm: input.paymentTerm,
         note: input.note.trim(),
@@ -245,6 +246,66 @@ const mapPgError = (error: { message?: string } | null): Error => {
   return new Error(message);
 };
 
+const mapProduct = (row: any): Product => ({
+  id: row.id,
+  sku: row.sku,
+  name: row.name,
+  description: row.description ?? '',
+  category: row.category,
+  unit: row.unit,
+  basePrice: Number(row.base_price ?? 0),
+  costPrice: Number(row.cost_price ?? 0),
+  moq: Number(row.moq ?? 1),
+  stockQuantity: Number(row.stock_qty ?? 0),
+  priceTiers: (row.price_tiers ?? []).map((t: any) => ({
+    minQuantity: Number(t.minQuantity ?? t.min_quantity ?? 0),
+    unitPrice: Number(t.unitPrice ?? t.unit_price ?? 0),
+  })),
+});
+
+const mapQuote = (row: any): QuoteRequest => ({
+  id: row.id,
+  code: row.code,
+  customerId: row.customer_id,
+  customerName: row.customer_name,
+  contactName: row.contact_name ?? '',
+  riskLevel: row.risk_level,
+  status: row.status,
+  createdAt: row.created_at,
+  paymentTerm: row.payment_term,
+  note: row.note ?? '',
+  items: (row.items ?? []).map((item: any) => ({
+    id: item.id,
+    productId: item.productId,
+    sku: item.sku,
+    name: item.name,
+    unit: item.unit,
+    quantity: Number(item.quantity ?? 0),
+    listUnitPrice: Number(item.listUnitPrice ?? 0),
+    targetUnitPrice: Number(item.targetUnitPrice ?? 0),
+    costUnitPrice: Number(item.costUnitPrice ?? 0),
+    listTotal: Number(item.listTotal ?? 0),
+    requestedTotal: Number(item.requestedTotal ?? 0),
+    marginPct: Number(item.marginPct ?? 0),
+  })),
+  totalList: Number(row.total_list ?? 0),
+  totalRequested: Number(row.total_requested ?? 0),
+  marginPct: Number(row.margin_pct ?? 0),
+  autoApproved: Boolean(row.auto_approved),
+  counterOffer: row.counter_offer ?? undefined,
+  decidedAt: row.decided_at ?? undefined,
+  decisionNote: row.decision_note ?? undefined,
+});
+
+const mapCredit = (raw: any): CustomerCredit => ({
+  limit: Number(raw.credit_limit ?? raw.limit ?? 0),
+  outstanding: Number(raw.outstanding ?? 0),
+  overdue: Number(raw.overdue ?? 0),
+  available: Number(raw.available ?? 0),
+  utilizationPct: Number(raw.utilization_pct ?? raw.utilizationPct ?? 0),
+  riskScore: String(raw.risk_score ?? raw.riskScore ?? 'B'),
+});
+
 /**
  * Gerçek Supabase implementasyonu. Para ve marj, §9 gereği sunucuda (RPC/trigger)
  * yeniden hesaplanır; istemci yalnızca sonucu gösterir.
@@ -255,19 +316,22 @@ const supabaseB2bApi: B2bApi = {
     let query = db.from('products').select('*');
     if (params?.category) query = query.eq('category', params.category);
     if (params?.search) {
-      const term = `%${params.search}%`;
-      query = query.or(`name.ilike.${term},sku.ilike.${term}`);
+      const sanitized = params.search.replace(/[%_,]/g, '');
+      query = query.or(`name.ilike.%${sanitized}%,sku.ilike.%${sanitized}%,description.ilike.%${sanitized}%`);
     }
     const { data, error } = await query;
     if (error) throw new Error(error.message);
-    return (data ?? []) as Product[];
+    return (data ?? []).map(mapProduct);
   },
 
   async createQuote(input) {
     const db = requireDb();
     const { data, error } = await db.rpc('create_quote', { payload: input });
     if (error) throw mapPgError(error);
-    return data as { quote: QuoteRequest; autoApproved: boolean };
+    return {
+      quote: mapQuote(data.quote),
+      autoApproved: Boolean(data.autoApproved),
+    };
   },
 
   async getQuotes(params) {
@@ -276,7 +340,7 @@ const supabaseB2bApi: B2bApi = {
     if (params?.status) query = query.eq('status', params.status);
     const { data, error } = await query;
     if (error) throw new Error(error.message);
-    return (data ?? []) as QuoteRequest[];
+    return (data ?? []).map(mapQuote);
   },
 
   async approveQuote(quoteId, discountPct = 0) {
@@ -286,7 +350,7 @@ const supabaseB2bApi: B2bApi = {
       p_discount_pct: discountPct,
     });
     if (error) throw mapPgError(error);
-    return data as QuoteRequest;
+    return mapQuote(data);
   },
 
   async rejectQuote(quoteId, note) {
@@ -296,7 +360,7 @@ const supabaseB2bApi: B2bApi = {
       p_note: note ?? '',
     });
     if (error) throw mapPgError(error);
-    return data as QuoteRequest;
+    return mapQuote(data);
   },
 
   async counterQuote(quoteId, input) {
@@ -306,14 +370,25 @@ const supabaseB2bApi: B2bApi = {
       p_input: input,
     });
     if (error) throw mapPgError(error);
-    return data as QuoteRequest;
+    return mapQuote(data);
   },
 
   async getCredit() {
     const db = requireDb();
     const { data, error } = await db.rpc('get_credit');
     if (error) throw new Error(error.message);
-    return data as { credit: CustomerCredit; check: CreditCheck };
+    return {
+      credit: mapCredit(data.credit),
+      check: {
+        requestedTotal: Number(data.check?.requestedTotal ?? 0),
+        currentExposure: Number(data.check?.currentExposure ?? 0),
+        projectedExposure: Number(data.check?.projectedExposure ?? 0),
+        limit: Number(data.check?.limit ?? 0),
+        available: Number(data.check?.available ?? 0),
+        exceeds: Boolean(data.check?.exceeds),
+        overflow: Number(data.check?.overflow ?? 0),
+      },
+    };
   },
 
   async getLedger(params) {

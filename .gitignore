@@ -16,6 +16,7 @@ web-build/
 .env.staging
 .env.production
 .env.*.local
+!.env.example
 
 # ─── EAS / Expo Credentials ──────────────────────────────────────
 *.p8
@@ -54,9 +55,11 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-# ─── IDE / Editör ────────────────────────────────────────────────
+# ─── IDE / Editör & Yapay Zeka Araçları ──────────────────────────
 .vscode/settings.json
 .idea/
+.gemini/
+.postman/
 *.swp
 *.swo
 *.suo
@@ -74,4 +77,4 @@ coverage/
 # ─── Supabase Yerel Geliştirme ───────────────────────────────────
 supabase/.branches/
 supabase/.temp/
-.env*
+.env

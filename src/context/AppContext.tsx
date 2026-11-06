@@ -1,12 +1,16 @@
+import * as Crypto from 'expo-crypto';
 import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 
+import { getB2bApi } from '../api/b2bApi';
+import { supabase } from '../api/client';
 import { CUSTOMER, CUSTOMERS, PRODUCTS, SEED_QUOTES, productById } from '../data/mockData';
 import type {
   CartLine,
@@ -23,15 +27,14 @@ import type {
   UserRole,
 } from '../types/b2b';
 import {
-  MARGIN_THRESHOLD_PCT,
   buildQuoteItem,
   computeTotals,
   evaluateCredit,
-  qualifiesForAutoApproval,
 } from '../utils/pricing';
-import { money } from '../utils/format';
+import { useAuth } from './AuthContext';
 
 interface CounterOfferInput {
+  itemId?: string;
   unitPrice: number;
   paymentTerm: PaymentTerm;
   note: string;
@@ -48,6 +51,7 @@ interface AppContextValue {
   credit: CustomerCredit;
   products: Product[];
   customers: Customer[];
+  loading: boolean;
 
   /* cart */
   cart: CartLine[];
@@ -70,45 +74,156 @@ interface AppContextValue {
   quotes: QuoteRequest[];
   pendingQuotes: number;
   lastSubmit: QuoteSubmitResult | null;
-  submitQuote: () => QuoteSubmitResult;
-  approveQuote: (quoteId: string, discountPct?: number) => void;
-  rejectQuote: (quoteId: string, note?: string) => void;
-  sendCounterOffer: (quoteId: string, input: CounterOfferInput) => void;
+  submitQuote: () => Promise<QuoteSubmitResult>;
+  approveQuote: (quoteId: string, discountPct?: number) => Promise<void>;
+  rejectQuote: (quoteId: string, note?: string) => Promise<void>;
+  sendCounterOffer: (quoteId: string, input: CounterOfferInput) => Promise<void>;
   resetDemo: () => void;
+  refreshData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
-let quoteSequence = 2060;
-
-const round2 = (value: number): number => Math.round(value * 100) / 100;
-
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [role, setRole] = useState<UserRole>('CUSTOMER');
-  const [cart, setCart] = useState<CartLine[]>([]);
+  const { user } = useAuth();
+
+  // Profil tablosundan gerçek rolü çekme (Admin e-postası ise anında ADMIN başlat)
+  const [profileRole, setProfileRole] = useState<UserRole | null>(() => {
+    if (user?.email?.toLowerCase().includes('admin')) return 'ADMIN';
+    return null;
+  });
+
+  const jwtRole = (user?.app_metadata?.user_role ?? user?.user_metadata?.user_role) as UserRole | undefined;
+
+  useEffect(() => {
+    if (!user || !supabase) {
+      setProfileRole(null);
+      return;
+    }
+
+    if (user.email?.toLowerCase().includes('admin')) {
+      setProfileRole('ADMIN');
+    }
+
+    supabase
+      .from('customer_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.role) {
+          setProfileRole(data.role as UserRole);
+        }
+      });
+  }, [user?.id, user?.email]);
+
+  const role: UserRole = useMemo(() => {
+    if (profileRole) return profileRole;
+    if (jwtRole) return jwtRole;
+    if (user?.email?.toLowerCase().includes('admin')) return 'ADMIN';
+    return 'CUSTOMER';
+  }, [profileRole, jwtRole, user?.email]);
+
+  const [products, setProducts] = useState<Product[]>(PRODUCTS);
   const [quotes, setQuotes] = useState<QuoteRequest[]>(SEED_QUOTES);
+  const [credit, setCredit] = useState<CustomerCredit>(CUSTOMER.credit);
+  const [loading, setLoading] = useState(true);
+
+  const [cart, setCart] = useState<CartLine[]>([]);
   const [paymentTerm, setPaymentTerm] = useState<PaymentTerm>('TERM_30');
   const [quoteNote, setQuoteNote] = useState('');
   const [lastSubmit, setLastSubmit] = useState<QuoteSubmitResult | null>(null);
-  const [credit, setCredit] = useState<CustomerCredit>(CUSTOMER.credit);
   const submissionLock = useRef(false);
 
-  const customer = useMemo<Customer>(() => ({ ...CUSTOMER, credit }), [credit]);
+  const customer = useMemo<Customer>(() => {
+    if (user) {
+      return {
+        ...CUSTOMER,
+        id: user.id,
+        name: (user.user_metadata?.company_name as string) ?? CUSTOMER.name,
+        contactName: (user.user_metadata?.contact_name as string) ?? user.email ?? CUSTOMER.contactName,
+        email: user.email ?? CUSTOMER.email,
+        credit,
+      };
+    }
+    return { ...CUSTOMER, credit };
+  }, [user, credit]);
 
-  // Portföy: tüm müşteriler; mevcut müşterinin kredi profili canlı state'ten gelir.
   const customers = useMemo<Customer[]>(
-    () => CUSTOMERS.map((item) => (item.id === CUSTOMER.id ? { ...item, credit } : item)),
-    [credit],
+    () => CUSTOMERS.map((item) => (item.id === customer.id ? { ...item, credit } : item)),
+    [credit, customer.id],
   );
 
   const toggleRole = useCallback(() => {
-    setRole((current) => (current === 'CUSTOMER' ? 'ADMIN' : 'CUSTOMER'));
+    // Oturum açılmışken kullanıcı rolünü değiştiremez; rol veritabanından belirlenir.
   }, []);
+
+  const setRole = useCallback((_newRole: UserRole) => {
+    // Oturum açılmışken kullanıcı rolünü değiştiremez.
+  }, []);
+
+  // API'den canlı verileri çekme (bağımsız bloklar: bir hata diğerini engellemez)
+  const refreshData = useCallback(async () => {
+    const api = getB2bApi();
+
+    try {
+      const prods = await api.getProducts();
+      if (prods && prods.length > 0) setProducts(prods);
+    } catch (e: any) {
+      console.warn('Ürünler çekilemedi:', e?.message);
+    }
+
+    try {
+      const quots = await api.getQuotes();
+      if (quots) setQuotes(quots);
+    } catch (e: any) {
+      console.warn('Teklifler çekilemedi:', e?.message);
+    }
+
+    try {
+      const creditData = await api.getCredit();
+      if (creditData?.credit) setCredit(creditData.credit);
+    } catch (e: any) {
+      console.warn('Kredi bilgisi çekilemedi:', e?.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshData();
+  }, [refreshData, user?.id]);
+
+  // Realtime Abonelik (Aşama 6.2)
+  useEffect(() => {
+    const client = supabase;
+    if (!client || !user) return;
+
+    const channel = client
+      .channel('quotes-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'quotes',
+          filter: role === 'CUSTOMER' ? `customer_id=eq.${user.id}` : undefined,
+        },
+        () => {
+          refreshData();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      client.removeChannel(channel);
+    };
+  }, [user?.id, role, refreshData]);
 
   /* ------------------------------------------------------------------ cart */
 
   const addToCart = useCallback((productId: string, quantity?: number) => {
-    const product = productById(productId);
+    const product = products.find((p) => p.id === productId) ?? productById(productId);
     if (!product) return;
 
     setCart((current) => {
@@ -137,10 +252,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         },
       ];
     });
-  }, []);
+  }, [products]);
 
   const setLineQuantity = useCallback((productId: string, quantity: number) => {
-    const product = productById(productId);
+    const product = products.find((p) => p.id === productId) ?? productById(productId);
     if (!product) return;
 
     const clamped = Math.min(Math.max(quantity, product.moq), product.stockQuantity);
@@ -149,7 +264,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         line.productId === productId ? { ...line, quantity: clamped } : line,
       ),
     );
-  }, []);
+  }, [products]);
 
   const updateQuantity = useCallback(
     (productId: string, quantity: number) => {
@@ -197,12 +312,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const cartItems = useMemo<QuoteItem[]>(() => {
     return cart
       .map((line) => {
-        const product = productById(line.productId);
+        const product = products.find((p) => p.id === line.productId) ?? productById(line.productId);
         if (!product) return undefined;
         return buildQuoteItem(product, line);
       })
       .filter((item): item is QuoteItem => Boolean(item));
-  }, [cart]);
+  }, [cart, products]);
 
   const totals = useMemo<QuoteTotals>(() => computeTotals(cartItems), [cartItems]);
 
@@ -218,7 +333,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   /* ---------------------------------------------------------------- quotes */
 
-  const submitQuote = useCallback((): QuoteSubmitResult => {
+  const submitQuote = useCallback(async (): Promise<QuoteSubmitResult> => {
     if (submissionLock.current) {
       return {
         ok: false,
@@ -237,222 +352,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return failure;
     }
 
-    const moqViolation = cartItems.find((item) => {
-      const product = productById(item.productId);
-      return product ? item.quantity < product.moq : true;
-    });
-
-    if (moqViolation) {
-      const failure: QuoteSubmitResult = {
-        ok: false,
-        reason: 'MOQ',
-        message: `${moqViolation.name} için minimum sipariş miktarı karşılanmadı.`,
-      };
-      setLastSubmit(failure);
-      return failure;
-    }
-
-    if (creditCheck.exceeds) {
-      const failure: QuoteSubmitResult = {
-        ok: false,
-        reason: 'CREDIT_LIMIT',
-        message: `Kredi limiti aşılıyor. Kullanılabilir limit ${money(
-          credit.available,
-          0,
-        )}, talep edilen tutar ${money(totals.requestedTotal, 0)}.`,
-      };
-      setLastSubmit(failure);
-      return failure;
-    }
-
     submissionLock.current = true;
-    quoteSequence += 1;
-
-    const autoApproved = qualifiesForAutoApproval(totals.marginPct, customer.riskLevel);
-    const now = new Date().toISOString();
-    const quote: QuoteRequest = {
-      id: `q-${quoteSequence}`,
-      code: `TK-${quoteSequence}`,
-      customerId: customer.id,
-      customerName: customer.name,
-      contactName: customer.contactName,
-      riskLevel: customer.riskLevel,
-      status: autoApproved ? 'APPROVED' : 'PENDING',
-      createdAt: now,
-      paymentTerm,
-      note: quoteNote.trim(),
-      items: cartItems,
-      totalList: round2(totals.listTotal),
-      totalRequested: round2(totals.requestedTotal),
-      marginPct: Number(totals.marginPct.toFixed(2)),
-      autoApproved,
-      decidedAt: autoApproved ? now : undefined,
-      decisionNote: autoApproved
-        ? `Marj eşiği (${MARGIN_THRESHOLD_PCT}%) üzerinde olduğu için otomatik onaylandı.`
-        : undefined,
-    };
-
-    setQuotes((current) => [quote, ...current]);
-    setCart([]);
-    setQuoteNote('');
-
-    if (autoApproved) {
-      setCredit((current) => {
-        const outstanding = current.outstanding + quote.totalRequested;
-        return {
-          ...current,
-          outstanding,
-          available: Math.max(current.limit - outstanding - current.overdue, 0),
-          utilizationPct: ((outstanding + current.overdue) / current.limit) * 100,
-        };
+    try {
+      const idempotencyKey = Crypto.randomUUID();
+      const api = getB2bApi();
+      const { quote, autoApproved } = await api.createQuote({
+        items: cartItems.map((i) => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          targetUnitPrice: i.targetUnitPrice,
+        })),
+        paymentTerm,
+        note: quoteNote.trim(),
+        idempotencyKey,
       });
-    }
 
-    const success: QuoteSubmitResult = { ok: true, quote, autoApproved };
-    setLastSubmit(success);
-    submissionLock.current = false;
-    return success;
-  }, [
-    cartItems,
-    credit.available,
-    creditCheck.exceeds,
-    customer,
-    paymentTerm,
-    quoteNote,
-    totals,
-  ]);
+      setQuotes((prev) => [quote, ...prev.filter((q) => q.id !== quote.id)]);
+      clearCart();
+      await refreshData();
+
+      const success: QuoteSubmitResult = { ok: true, quote, autoApproved };
+      setLastSubmit(success);
+      return success;
+    } catch (err: any) {
+      const msg = err.message ?? '';
+      let failure: QuoteSubmitResult;
+
+      if (msg.includes('CREDIT_LIMIT')) {
+        failure = { ok: false, reason: 'CREDIT_LIMIT', message: msg };
+      } else if (msg.includes('MOQ_VIOLATION') || msg.includes('MOQ')) {
+        failure = { ok: false, reason: 'MOQ', message: msg };
+      } else {
+        failure = { ok: false, reason: 'EMPTY_CART', message: msg || 'Teklif oluşturulamadı.' };
+      }
+
+      setLastSubmit(failure);
+      return failure;
+    } finally {
+      submissionLock.current = false;
+    }
+  }, [cartItems, clearCart, paymentTerm, quoteNote, refreshData]);
 
   const approveQuote = useCallback(
-    (quoteId: string, discountPct = 0) => {
-      const target = quotes.find((quote) => quote.id === quoteId);
-      if (!target) return;
-
-      // İskonto yüzdesi kalem birim fiyatlarına yansıtılır; marj ve toplam yeniden hesaplanır (R7).
-      const factor = 1 - discountPct / 100;
-      const items = target.items.map((item) => {
-        const targetUnitPrice = round2(item.targetUnitPrice * factor);
-        return {
-          ...item,
-          targetUnitPrice,
-          requestedTotal: round2(targetUnitPrice * item.quantity),
-          marginPct: Number(
-            (((targetUnitPrice - item.costUnitPrice) / targetUnitPrice) * 100).toFixed(2),
-          ),
-        };
-      });
-
-      const totalRequested = round2(
-        items.reduce((sum, item) => sum + item.requestedTotal, 0),
-      );
-      const costTotal = items.reduce(
-        (sum, item) => sum + item.costUnitPrice * item.quantity,
-        0,
-      );
-      const marginPct = Number((((totalRequested - costTotal) / totalRequested) * 100).toFixed(2));
-
-      setQuotes((current) =>
-        current.map((quote) =>
-          quote.id === quoteId
-            ? {
-                ...quote,
-                status: 'APPROVED' as const,
-                items,
-                totalRequested,
-                marginPct,
-                decidedAt: new Date().toISOString(),
-                decisionNote:
-                  discountPct > 0
-                    ? `Onaylandı • %${discountPct} ek iskonto uygulandı.`
-                    : 'Onaylandı.',
-              }
-            : quote,
-        ),
-      );
-
-      // Onaylanan teklif müşterinin açık hesabını artırır, kalan limit yeniden hesaplanır (R11).
-      if (target.customerId === customer.id) {
-        setCredit((current) => {
-          const outstanding = current.outstanding + totalRequested;
-          return {
-            ...current,
-            outstanding,
-            available: Math.max(current.limit - outstanding - current.overdue, 0),
-            utilizationPct: ((outstanding + current.overdue) / current.limit) * 100,
-          };
-        });
-      }
+    async (quoteId: string, discountPct = 0) => {
+      const api = getB2bApi();
+      const updated = await api.approveQuote(quoteId, discountPct);
+      setQuotes((current) => current.map((q) => (q.id === quoteId ? updated : q)));
+      await refreshData();
     },
-    [quotes, customer.id],
+    [refreshData],
   );
 
-  const rejectQuote = useCallback((quoteId: string, note?: string) => {
-    setQuotes((current) =>
-      current.map((quote) =>
-        quote.id === quoteId
-          ? {
-              ...quote,
-              status: 'REJECTED',
-              decidedAt: new Date().toISOString(),
-              decisionNote: note?.trim() || 'Talep reddedildi.',
-            }
-          : quote,
-      ),
-    );
-  }, []);
+  const rejectQuote = useCallback(
+    async (quoteId: string, note?: string) => {
+      const api = getB2bApi();
+      const updated = await api.rejectQuote(quoteId, note);
+      setQuotes((current) => current.map((q) => (q.id === quoteId ? updated : q)));
+      await refreshData();
+    },
+    [refreshData],
+  );
 
   const sendCounterOffer = useCallback(
-    (quoteId: string, input: CounterOfferInput) => {
-      setQuotes((current) =>
-        current.map((quote) => {
-          if (quote.id !== quoteId) return quote;
-
-          const items = quote.items.map((item) => {
-            const targetUnitPrice =
-              item.id === quote.items[0]?.id ? round2(input.unitPrice) : item.targetUnitPrice;
-            return {
-              ...item,
-              targetUnitPrice,
-              requestedTotal: round2(targetUnitPrice * item.quantity),
-              marginPct: Number(
-                (((targetUnitPrice - item.costUnitPrice) / targetUnitPrice) * 100).toFixed(2),
-              ),
-            };
-          });
-
-          const totalRequested = round2(
-            items.reduce((sum, item) => sum + item.requestedTotal, 0),
-          );
-          const costTotal = items.reduce(
-            (sum, item) => sum + item.costUnitPrice * item.quantity,
-            0,
-          );
-
-          const counterOffer: CounterOffer = {
-            id: `${quote.id}-co-${Date.now()}`,
-            quoteId: quote.id,
-            itemId: quote.items[0]?.id ?? null,
-            proposedUnitPrice: round2(input.unitPrice),
-            paymentTerm: input.paymentTerm,
-            note: input.note.trim(),
-            createdAt: new Date().toISOString(),
-            createdBy: 'ADMIN',
-          };
-
-          return {
-            ...quote,
-            status: 'COUNTERED',
-            items,
-            totalRequested,
-            marginPct: Number((((totalRequested - costTotal) / totalRequested) * 100).toFixed(2)),
-            paymentTerm: input.paymentTerm,
-            counterOffer,
-            decidedAt: new Date().toISOString(),
-            decisionNote: 'Karşı teklif gönderildi.',
-          };
-        }),
-      );
+    async (quoteId: string, input: CounterOfferInput) => {
+      const api = getB2bApi();
+      const updated = await api.counterQuote(quoteId, input);
+      setQuotes((current) => current.map((q) => (q.id === quoteId ? updated : q)));
+      await refreshData();
     },
-    [],
+    [refreshData],
   );
 
   const resetDemo = useCallback(() => {
@@ -462,7 +430,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setQuoteNote('');
     setLastSubmit(null);
     setCredit(CUSTOMER.credit);
-    setRole('CUSTOMER');
   }, []);
 
   const value = useMemo<AppContextValue>(
@@ -472,8 +439,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       toggleRole,
       customer,
       credit,
-      products: PRODUCTS,
+      products,
       customers,
+      loading,
       cart,
       cartItems,
       totals,
@@ -497,13 +465,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       rejectQuote,
       sendCounterOffer,
       resetDemo,
+      refreshData,
     }),
     [
       role,
+      setRole,
       toggleRole,
       customer,
       credit,
+      products,
       customers,
+      loading,
       cart,
       cartItems,
       totals,
@@ -525,6 +497,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       rejectQuote,
       sendCounterOffer,
       resetDemo,
+      refreshData,
     ],
   );
 

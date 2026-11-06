@@ -12,17 +12,22 @@ import { AdminApprovalHubScreen } from '../screens/AdminApprovalHubScreen';
 import { AdminPortfolioScreen } from '../screens/AdminPortfolioScreen';
 import { CustomerCatalogScreen } from '../screens/CustomerCatalogScreen';
 import { FinancialLedgerScreen } from '../screens/FinancialLedgerScreen';
+import { HomeScreen } from '../screens/HomeScreen';
 import { QuoteBuilderScreen } from '../screens/QuoteBuilderScreen';
+import { QuoteNegotiationScreen } from '../screens/QuoteNegotiationScreen';
 import { palette } from '../theme/tokens';
 
 export type CustomerTabParamList = {
+  Home: undefined;
   Catalog: undefined;
   QuoteBuilder: undefined;
+  Negotiation: undefined;
   Ledger: undefined;
 };
 
 export type AdminTabParamList = {
   Approvals: undefined;
+  Negotiation: undefined;
   Ledger: undefined;
 };
 
@@ -36,15 +41,15 @@ const AdminTabs = createBottomTabNavigator<AdminTabParamList>();
 
 const screenOptions: BottomTabNavigationOptions = {
   headerShown: false,
-  tabBarActiveTintColor: palette.primary,
-  tabBarInactiveTintColor: palette.muted,
+  tabBarActiveTintColor: '#536E27',
+  tabBarInactiveTintColor: '#71717A',
   tabBarStyle: {
-    backgroundColor: palette.surface,
-    borderTopColor: palette.border,
+    backgroundColor: '#FFFFFF',
+    borderTopColor: '#E4E4E7',
     borderTopWidth: 1,
-    height: Platform.OS === 'ios' ? 84 : 62,
-    paddingTop: 6,
-    paddingBottom: Platform.OS === 'ios' ? 26 : 8,
+    height: Platform.OS === 'ios' ? 82 : 60,
+    paddingTop: 4,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 6,
   },
   tabBarLabelStyle: {
     fontSize: 10,
@@ -52,19 +57,29 @@ const screenOptions: BottomTabNavigationOptions = {
   },
 };
 
-/** Customer portal: catalog → quote builder → credit ledger. */
+/** Customer portal: Ana Sayfa → Katalog → Teklif Sepeti → Pazarlık → Cari Hesap */
 const CustomerNavigator: React.FC = () => {
   const { cartItems } = useApp();
 
   return (
-    <CustomerTabs.Navigator screenOptions={screenOptions}>
+    <CustomerTabs.Navigator screenOptions={screenOptions} initialRouteName="Home">
+      <CustomerTabs.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{
+          title: 'Ana Sayfa',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home" size={size - 2} color={color} />
+          ),
+        }}
+      />
       <CustomerTabs.Screen
         name="Catalog"
         component={CustomerCatalogScreen}
         options={{
           title: 'Katalog',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="grid-outline" size={size} color={color} />
+            <Ionicons name="archive-outline" size={size - 2} color={color} />
           ),
         }}
       />
@@ -72,11 +87,26 @@ const CustomerNavigator: React.FC = () => {
         name="QuoteBuilder"
         component={QuoteBuilderScreen}
         options={{
-          title: 'Teklifim',
+          title: 'Teklif Sepeti',
           tabBarBadge: cartItems.length > 0 ? cartItems.length : undefined,
-          tabBarBadgeStyle: { backgroundColor: palette.accent, color: palette.dark, fontSize: 9 },
+          tabBarBadgeStyle: {
+            backgroundColor: '#8FBE1A',
+            color: '#0e1406',
+            fontSize: 9,
+            fontWeight: 'bold',
+          },
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="receipt-outline" size={size} color={color} />
+            <Ionicons name="document-text-outline" size={size - 2} color={color} />
+          ),
+        }}
+      />
+      <CustomerTabs.Screen
+        name="Negotiation"
+        component={QuoteNegotiationScreen}
+        options={{
+          title: 'Pazarlık',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="swap-horizontal-outline" size={size - 2} color={color} />
           ),
         }}
       />
@@ -84,9 +114,9 @@ const CustomerNavigator: React.FC = () => {
         name="Ledger"
         component={FinancialLedgerScreen}
         options={{
-          title: 'Cari Hesap',
+          title: 'Cari',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="pie-chart-outline" size={size} color={color} />
+            <Ionicons name="pie-chart-outline" size={size - 2} color={color} />
           ),
         }}
       />
@@ -96,7 +126,6 @@ const CustomerNavigator: React.FC = () => {
 
 const AdminLedgerStack = createNativeStackNavigator<AdminLedgerStackParamList>();
 
-/** Admin "Cari Hesap" tab: portfolio list → per-customer ledger detail. */
 const AdminLedgerNavigator: React.FC = () => (
   <AdminLedgerStack.Navigator screenOptions={{ headerShown: false }}>
     <AdminLedgerStack.Screen name="AdminPortfolio" component={AdminPortfolioScreen} />
@@ -104,21 +133,31 @@ const AdminLedgerNavigator: React.FC = () => (
   </AdminLedgerStack.Navigator>
 );
 
-/** Employee workspace: approval queue plus the shared financial ledger. */
+/** Employee workspace: approval queue plus negotiation review & financial ledger. */
 const AdminNavigator: React.FC = () => {
   const { pendingQuotes } = useApp();
 
   return (
-    <AdminTabs.Navigator screenOptions={screenOptions}>
+    <AdminTabs.Navigator screenOptions={screenOptions} initialRouteName="Approvals">
       <AdminTabs.Screen
         name="Approvals"
         component={AdminApprovalHubScreen}
         options={{
-          title: 'Onaylar',
+          title: 'Onay Paneli',
           tabBarBadge: pendingQuotes > 0 ? pendingQuotes : undefined,
-          tabBarBadgeStyle: { backgroundColor: palette.danger, color: '#FFFFFF', fontSize: 9 },
+          tabBarBadgeStyle: { backgroundColor: '#DC2626', color: '#FFFFFF', fontSize: 9 },
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="shield-checkmark-outline" size={size} color={color} />
+            <Ionicons name="shield-checkmark-outline" size={size - 2} color={color} />
+          ),
+        }}
+      />
+      <AdminTabs.Screen
+        name="Negotiation"
+        component={QuoteNegotiationScreen}
+        options={{
+          title: 'Pazarlık Dosyası',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="swap-horizontal-outline" size={size - 2} color={color} />
           ),
         }}
       />
@@ -126,9 +165,9 @@ const AdminNavigator: React.FC = () => {
         name="Ledger"
         component={AdminLedgerNavigator}
         options={{
-          title: 'Cari Hesap',
+          title: 'Cari Portföy',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="pie-chart-outline" size={size} color={color} />
+            <Ionicons name="pie-chart-outline" size={size - 2} color={color} />
           ),
         }}
       />

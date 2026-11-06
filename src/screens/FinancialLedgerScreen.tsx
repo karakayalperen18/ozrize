@@ -1,331 +1,227 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
-import React, { useMemo } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import { useNavigation, type NavigationProp } from '@react-navigation/native';
+import React from 'react';
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppHeader } from '../components/AppHeader';
-import { Badge } from '../components/ui/Badge';
-import { Button } from '../components/ui/Button';
-import { ProgressBar } from '../components/ui/ProgressBar';
-import { StatTile } from '../components/ui/StatTile';
 import { useApp } from '../context/AppContext';
-import { LEDGER_BY_CUSTOMER, LEDGER_ENTRIES } from '../data/mockData';
-import { palette, riskMeta } from '../theme/tokens';
-import type { LedgerEntry, LedgerEntryStatus } from '../types/b2b';
-import { dateTR, money, moneyShort, percent } from '../utils/format';
-import { creditHealth } from '../utils/pricing';
-
-const statusBadge: Record<LedgerEntryStatus, { label: string; className: string; textClassName: string }> = {
-  PAID: {
-    label: 'Ödendi',
-    className: 'bg-brand-accent/15 border-brand-accent/40',
-    textClassName: 'text-brand-primary',
-  },
-  PENDING: {
-    label: 'Beklemede',
-    className: 'bg-amber-50 border-amber-200',
-    textClassName: 'text-amber-700',
-  },
-  OVERDUE: {
-    label: 'Gecikmiş',
-    className: 'bg-red-50 border-red-200',
-    textClassName: 'text-red-700',
-  },
-};
-
-const entryIcon = (entry: LedgerEntry): keyof typeof Ionicons.glyphMap => {
-  if (entry.type === 'COLLECTION') return 'arrow-down-circle';
-  if (entry.type === 'ADJUSTMENT') return 'refresh-circle';
-  return entry.status === 'OVERDUE' ? 'alert-circle' : 'receipt';
-};
+import { money } from '../utils/format';
 
 export const FinancialLedgerScreen: React.FC = () => {
-  const route = useRoute();
-  const { customer: currentCustomer, customers, role } = useApp();
+  const navigation = useNavigation<NavigationProp<Record<string, object | undefined>>>();
+  const { customer, credit, toggleRole } = useApp();
 
-  // Admin portföyünden seçilen şirketi göster; parametre yoksa mevcut müşteri geçerli.
-  const requestedId = (route.params as { customerId?: string } | undefined)?.customerId;
-  const customer = requestedId
-    ? (customers.find((item) => item.id === requestedId) ?? currentCustomer)
-    : currentCustomer;
-  const credit = customer.credit;
-  const ledger = LEDGER_BY_CUSTOMER[customer.id] ?? LEDGER_ENTRIES;
-
-  const health = creditHealth(credit.utilizationPct);
-  const risk = riskMeta[customer.riskLevel];
-
-  const gaugeFill =
-    health === 'CRITICAL' ? 'bg-red-500' : health === 'WATCH' ? 'bg-brand-accent' : 'bg-brand-supporting';
-
-  const { debits, credits } = useMemo(() => {
-    return ledger.reduce(
-      (accumulator, entry) => {
-        if (entry.amount >= 0) {
-          accumulator.debits += entry.amount;
-        } else {
-          accumulator.credits += Math.abs(entry.amount);
-        }
-        return accumulator;
-      },
-      { debits: 0, credits: 0 },
+  const handleDownloadPdf = () => {
+    Alert.alert(
+      'Cari Ekstre İndiriliyor',
+      `${customer.name} ait 2024 yılı resmi e-ekstre PDF dosyası hazırlanıyor.`,
+      [{ text: 'Tamam' }],
     );
-  }, [ledger]);
+  };
 
-  const notify = (title: string, message: string) => {
-    Alert.alert(title, message, [{ text: 'Tamam' }]);
+  const handlePaymentNotification = () => {
+    Alert.alert(
+      'Ödeme Bildirimi',
+      'Havale / EFT veya DBS ödeme dekontunuzu yüklemek için dosya seçici açılıyor.',
+      [{ text: 'Dekont Seç' }, { text: 'Vazgeç', style: 'cancel' }],
+    );
   };
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-brand-bg">
-      <AppHeader />
+    <SafeAreaView edges={['top']} className="flex-1 bg-[#536E27]">
+      {/* Header Nav */}
+      <View className="bg-[#536E27] px-4 py-2.5 shadow-md flex-row items-center justify-between">
+        <Pressable
+          onPress={() => navigation.goBack()}
+          className="h-8 w-8 items-center justify-center rounded-full bg-black/20"
+        >
+          <Ionicons name="arrow-back" size={17} color="#FFFFFF" />
+        </Pressable>
+        <View className="items-center">
+          <Text className="text-[13px] font-black tracking-tight text-white">
+            Cari Hesap & Risk Durumu
+          </Text>
+          <Text className="text-[9px] text-white/80">{customer.name}</Text>
+        </View>
+        <Pressable
+          onPress={handleDownloadPdf}
+          className="h-8 w-8 items-center justify-center rounded-full bg-black/20"
+        >
+          <Ionicons name="download-outline" size={16} color="#FFFFFF" />
+        </Pressable>
+      </View>
 
+      {/* Scrollable Content */}
       <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ paddingBottom: 108 }}
+        className="flex-1 bg-[#F7F9F4]"
+        contentContainerStyle={{ padding: 12, paddingBottom: 110 }}
         showsVerticalScrollIndicator={false}
       >
-        <View className="px-3 pt-2">
-          <View className="flex-row items-center justify-between">
-            <View>
-              <Text className="text-[15px] font-black text-brand-text">
-                {role === 'ADMIN' ? 'Müşteri Cari & Risk' : 'Cari Hesabım'}
-              </Text>
-              <Text className="text-[10px] text-brand-muted">{customer.name} • #{customer.code}</Text>
-            </View>
-            <Badge
-              label={risk.label}
-              className={risk.badgeClass}
-              textClassName={risk.textClass}
-              dotClassName={risk.dotClass}
-            />
-          </View>
-        </View>
-
-        <View className="mx-3 mt-2 rounded-card border border-brand-border bg-white p-3">
-          <View className="flex-row items-center justify-between">
-            <View>
-              <Text className="text-[9px] font-bold uppercase tracking-label text-brand-muted">
-                Kullanılabilir Limit
-              </Text>
-              <Text className="font-mono text-[22px] font-black leading-tight text-brand-primary">
-                {moneyShort(credit.available)}
-              </Text>
-            </View>
-            <View className="items-end">
-              <Text className="text-[9px] text-brand-muted">Toplam limit</Text>
-              <Text className="font-mono text-[12px] font-bold text-brand-text">
-                {moneyShort(credit.limit)}
-              </Text>
-            </View>
-          </View>
-
-          <ProgressBar
-            value={credit.utilizationPct / 100}
-            fillClassName={gaugeFill}
-            className="mt-2.5"
-            height={9}
-          />
-
-          <View className="mt-1.5 flex-row items-center justify-between">
-            <Text className="text-[9px] text-brand-muted">
-              {percent(credit.utilizationPct, 1)} kullanım
+        {/* Financial Cards 2x2 Grid */}
+        <View className="flex-row flex-wrap gap-2.5">
+          {/* Card 1 */}
+          <View className="flex-1 min-w-[46%] rounded-2xl border border-[#E2E8D4] bg-white p-3 shadow-sm">
+            <Text className="text-[10px] font-bold uppercase text-zinc-400">
+              Toplam Borç
             </Text>
-            <Text
-              className={`text-[10px] font-black ${
-                health === 'CRITICAL' ? 'text-red-600' : 'text-brand-text'
-              }`}
-            >
-              {health === 'CRITICAL'
-                ? 'Limit kritik seviyede'
-                : health === 'WATCH'
-                  ? 'Limit izlenmeli'
-                  : 'Limit sağlıklı'}
+            <Text className="mt-0.5 font-mono text-[16px] font-black text-zinc-900">
+              ₺180.000
+            </Text>
+            <Text className="text-[9px] text-zinc-500 mt-0.5">Güncel Açık Hesap</Text>
+          </View>
+
+          {/* Card 2 */}
+          <View className="flex-1 min-w-[46%] rounded-2xl border border-[#E2E8D4] bg-white p-3 shadow-sm">
+            <Text className="text-[10px] font-bold uppercase text-zinc-400">
+              Vadesi Geçmiş
+            </Text>
+            <Text className="mt-0.5 font-mono text-[16px] font-black text-emerald-600">
+              ₺0.00
+            </Text>
+            <Text className="text-[9px] font-semibold text-emerald-700 mt-0.5">
+              Gecikme Yok
             </Text>
           </View>
 
-          <View className="mt-2 flex-row justify-between rounded-lg bg-brand-bg px-2 py-1.5">
-            <View>
-              <Text className="text-[8px] uppercase text-brand-muted">Açık Hesap</Text>
-              <Text className="font-mono text-[10px] font-bold text-brand-text">
-                {moneyShort(credit.outstanding)}
+          {/* Card 3 */}
+          <View className="flex-1 min-w-[46%] rounded-2xl border border-[#E2E8D4] bg-white p-3 shadow-sm">
+            <Text className="text-[10px] font-bold uppercase text-zinc-400">
+              Kalan Limit
+            </Text>
+            <Text className="mt-0.5 font-mono text-[16px] font-black text-[#536E27]">
+              ₺160.000
+            </Text>
+            <Text className="text-[9px] text-zinc-500 mt-0.5">Toplam: ₺500.000</Text>
+          </View>
+
+          {/* Card 4 */}
+          <View className="flex-1 min-w-[46%] rounded-2xl border border-[#E2E8D4] bg-white p-3 shadow-sm">
+            <Text className="text-[10px] font-bold uppercase text-zinc-400">
+              Risk Derecesi
+            </Text>
+            <View className="mt-0.5 flex-row items-center gap-1.5">
+              <Text className="text-[15px] font-black text-zinc-900">
+                Skor: {credit.riskScore || 'A'}
               </Text>
+              <View className="h-2.5 w-2.5 rounded-full bg-[#8FBE1A]" />
             </View>
-            <View className="items-center">
-              <Text className="text-[8px] uppercase text-brand-muted">Vadesi Geçmiş</Text>
-              <Text
-                className={`font-mono text-[10px] font-bold ${
-                  credit.overdue > 0 ? 'text-red-600' : 'text-brand-primary'
-                }`}
-              >
-                {moneyShort(credit.overdue)}
-              </Text>
-            </View>
-            <View className="items-end">
-              <Text className="text-[8px] uppercase text-brand-muted">Risk Skoru</Text>
-              <Text className="font-mono text-[10px] font-bold text-brand-text">
-                {credit.riskScore}
-              </Text>
-            </View>
+            <Text className="text-[9px] text-zinc-500 mt-0.5">Güvenli Müşteri</Text>
           </View>
         </View>
 
-        <View className="mx-3 mt-2 flex-row gap-2">
-          <StatTile
-            label="Toplam Borç"
-            value={moneyShort(credit.outstanding + credit.overdue)}
-            hint="Güncel açık hesap"
-            className="flex-1"
-          />
-          <StatTile
-            label="Vadesi Geçmiş"
-            value={moneyShort(credit.overdue)}
-            hint={credit.overdue > 0 ? 'Gecikme mevcut' : 'Gecikme yok'}
-            valueClassName={credit.overdue > 0 ? 'text-red-600' : 'text-brand-primary'}
-            hintClassName={credit.overdue > 0 ? 'text-red-600' : 'text-brand-primary'}
-            className="flex-1"
-          />
-        </View>
-
-        <View className="mx-3 mt-2 flex-row gap-2">
-          <StatTile
-            label="Kalan Limit"
-            value={moneyShort(credit.available)}
-            hint={`Toplam: ${moneyShort(credit.limit)}`}
-            valueClassName="text-brand-primary"
-            className="flex-1"
-          />
-          <StatTile
-            label="Risk Derecesi"
-            value={`Skor: ${credit.riskScore}`}
-            hint={risk.label}
-            hintClassName={risk.textClass}
-            className="flex-1"
-          />
-        </View>
-
-        <View className="mx-3 mt-3 flex-row items-center justify-between">
-          <Text className="text-[11px] font-black uppercase tracking-label text-brand-primary">
+        {/* Account Movements Header */}
+        <View className="mt-4 flex-row items-center justify-between px-1">
+          <Text className="text-[11px] font-black uppercase tracking-wider text-[#536E27]">
             Son Hesap Hareketleri
           </Text>
-          <Text className="text-[9px] text-brand-muted">Son 30 gün</Text>
+          <Text className="text-[10px] text-zinc-500">Son 30 Gün</Text>
         </View>
 
-        <View className="mx-3 mt-1.5 gap-1.5">
-          {ledger.map((entry) => {
-            const badge = statusBadge[entry.status];
-            const isCreditRow = entry.amount < 0;
-            return (
-              <View
-                key={entry.id}
-                className="flex-row items-center rounded-xl border border-brand-border bg-white p-2.5"
-              >
-                <View
-                  className={`h-8 w-8 items-center justify-center rounded-lg ${
-                    entry.status === 'OVERDUE'
-                      ? 'bg-red-50'
-                      : isCreditRow
-                        ? 'bg-blue-50'
-                        : 'bg-brand-bg'
-                  }`}
-                >
-                  <Ionicons
-                    name={entryIcon(entry)}
-                    size={15}
-                    color={
-                      entry.status === 'OVERDUE'
-                        ? palette.danger
-                        : isCreditRow
-                          ? palette.info
-                          : palette.primary
-                    }
-                  />
-                </View>
-
-                <View className="ml-2 flex-1">
-                  <Text className="text-[11px] font-bold text-brand-text" numberOfLines={1}>
-                    {entry.reference}
-                  </Text>
-                  <Text className="text-[9px] text-brand-muted" numberOfLines={1}>
-                    {dateTR(entry.date)} • {entry.description}
-                  </Text>
-                </View>
-
-                <View className="items-end">
-                  <Text
-                    className={`font-mono text-[11px] font-black ${
-                      isCreditRow ? 'text-brand-primary' : 'text-brand-text'
-                    }`}
-                  >
-                    {isCreditRow ? '-' : ''}
-                    {money(Math.abs(entry.amount), 0)}
-                  </Text>
-                  <Badge
-                    label={badge.label}
-                    className={`mt-0.5 ${badge.className}`}
-                    textClassName={badge.textClassName}
-                  />
-                </View>
+        {/* Transaction List */}
+        <View className="mt-2 space-y-2">
+          {/* Tx 1 */}
+          <View className="flex-row items-center justify-between rounded-xl border border-[#E2E8D4] bg-white p-2.5 shadow-sm mb-2">
+            <View className="flex-row items-center gap-2.5">
+              <View className="h-9 w-9 items-center justify-center rounded-lg bg-emerald-50">
+                <Ionicons name="receipt-outline" size={17} color="#047857" />
               </View>
-            );
-          })}
-        </View>
+              <View>
+                <Text className="text-[12px] font-bold leading-tight text-zinc-900">
+                  Fatura #FTR-2024-819
+                </Text>
+                <Text className="text-[9px] text-zinc-400">
+                  12 Mayıs 2024 • DBS Vadeli
+                </Text>
+              </View>
+            </View>
+            <View className="items-end">
+              <Text className="font-mono text-[12px] font-black text-zinc-900">
+                ₺44.000
+              </Text>
+              <View className="mt-0.5 rounded bg-emerald-100 px-1.5 py-0.5">
+                <Text className="text-[9px] font-bold text-emerald-800">Ödendi</Text>
+              </View>
+            </View>
+          </View>
 
-        <View className="mx-3 mt-2 rounded-card border border-brand-border bg-white p-3">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-[9px] font-bold uppercase tracking-label text-brand-muted">
-              Dönem Özeti
-            </Text>
-            <Text className="text-[8px] text-brand-muted">KDV dahil</Text>
+          {/* Tx 2 */}
+          <View className="flex-row items-center justify-between rounded-xl border border-[#E2E8D4] bg-white p-2.5 shadow-sm mb-2">
+            <View className="flex-row items-center gap-2.5">
+              <View className="h-9 w-9 items-center justify-center rounded-lg bg-amber-50">
+                <Ionicons name="hourglass-outline" size={17} color="#B45309" />
+              </View>
+              <View>
+                <Text className="text-[12px] font-bold leading-tight text-zinc-900">
+                  Teklif #TK-2048 (Onaylı)
+                </Text>
+                <Text className="text-[9px] text-zinc-400">
+                  02 Haziran 2024 • Vade 45 Gün
+                </Text>
+              </View>
+            </View>
+            <View className="items-end">
+              <Text className="font-mono text-[12px] font-black text-zinc-900">
+                ₺105.000
+              </Text>
+              <View className="mt-0.5 rounded bg-amber-100 px-1.5 py-0.5">
+                <Text className="text-[9px] font-bold text-amber-800">Beklemede</Text>
+              </View>
+            </View>
           </View>
-          <View className="mt-1.5 flex-row items-center justify-between">
-            <Text className="text-[10px] text-brand-muted">Borçlandırma</Text>
-            <Text className="font-mono text-[10px] font-bold text-brand-text">
-              {money(debits, 0)}
-            </Text>
-          </View>
-          <View className="mt-1 flex-row items-center justify-between">
-            <Text className="text-[10px] text-brand-muted">Tahsilat / İade</Text>
-            <Text className="font-mono text-[10px] font-bold text-brand-primary">
-              -{money(credits, 0)}
-            </Text>
-          </View>
-          <View className="mt-1.5 flex-row items-center justify-between border-t border-brand-border pt-1.5">
-            <Text className="text-[10px] font-black text-brand-text">Net Bakiye</Text>
-            <Text className="font-mono text-[12px] font-black text-brand-text">
-              {money(debits - credits, 0)}
-            </Text>
+
+          {/* Tx 3 */}
+          <View className="flex-row items-center justify-between rounded-xl border border-[#E2E8D4] bg-white p-2.5 shadow-sm mb-2">
+            <View className="flex-row items-center gap-2.5">
+              <View className="h-9 w-9 items-center justify-center rounded-lg bg-blue-50">
+                <Ionicons name="arrow-down" size={17} color="#1D4ED8" />
+              </View>
+              <View>
+                <Text className="text-[12px] font-bold leading-tight text-zinc-900">
+                  Cari Tahsilat / Havale
+                </Text>
+                <Text className="text-[9px] text-zinc-400">
+                  28 Nisan 2024 • Garanti BBVA
+                </Text>
+              </View>
+            </View>
+            <View className="items-end">
+              <Text className="font-mono text-[12px] font-black text-[#536E27]">
+                -₺75.000
+              </Text>
+              <View className="mt-0.5 rounded bg-[#8FBE1A]/20 px-1.5 py-0.5">
+                <Text className="text-[9px] font-bold text-[#536E27]">İşlendi</Text>
+              </View>
+            </View>
           </View>
         </View>
       </ScrollView>
 
-      <View className="absolute bottom-0 left-0 right-0 border-t border-brand-border bg-brand-dark px-3 pb-3 pt-2.5">
+      {/* Sticky Bottom Financial Action Buttons */}
+      <View className="absolute bottom-0 left-0 right-0 border-t border-[#3B4D20] bg-[#253213] p-3 shadow-2xl">
         <View className="flex-row gap-2">
-          <Button
-            label="Cari Ekstre (PDF)"
-            icon="download-outline"
-            variant="dark"
-            size="sm"
-            onPress={() =>
-              notify(
-                'Cari ekstre',
-                `${customer.name} için ${dateTR(new Date().toISOString())} tarihli ekstre hazırlanıyor.`,
-              )
-            }
-            className="flex-1"
-          />
-          <Button
-            label="Ödeme Bildirimi"
-            icon="cash-outline"
-            size="sm"
-            onPress={() =>
-              notify(
-                'Ödeme bildirimi',
-                'Havale/EFT bildiriminiz satış ekibine iletildi. Muhasebe 1 iş günü içinde eşleştirir.',
-              )
-            }
-            className="flex-1"
-          />
+          <Pressable
+            onPress={handleDownloadPdf}
+            className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-white/20 bg-white/10 py-2.5 active:bg-white/20"
+          >
+            <Ionicons name="document-text-outline" size={14} color="#FFFFFF" />
+            <Text className="text-[11px] font-bold text-white">Cari Ekstre (PDF)</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={handlePaymentNotification}
+            className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl bg-[#8FBE1A] py-2.5 shadow-md active:bg-[#7ea717]"
+          >
+            <Ionicons name="cash-outline" size={14} color="#0e1406" />
+            <Text className="text-[11px] font-black text-zinc-950">
+              Ödeme Bildirimi
+            </Text>
+          </Pressable>
         </View>
       </View>
     </SafeAreaView>

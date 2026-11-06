@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Image, Pressable, Text, View } from 'react-native';
 
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -18,8 +18,12 @@ export const AppHeader: React.FC = () => {
     <View className="bg-brand-primary px-4 pb-3 pt-2">
       <View className="flex-row items-center justify-between">
         <View className="flex-1 flex-row items-center pr-2">
-          <View className="h-9 w-9 items-center justify-center rounded-2xl bg-white">
-            <Ionicons name="leaf" size={18} color={palette.primary} />
+          <View className="h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm">
+            <Image
+              source={require('../../assets/logo.jpg')}
+              className="h-full w-full"
+              resizeMode="cover"
+            />
           </View>
           <View className="ml-2.5 flex-1">
             <View className="flex-row items-center">
@@ -53,22 +57,24 @@ export const AppHeader: React.FC = () => {
               accessibilityRole="button"
               accessibilityLabel="Oturumu kapat"
               hitSlop={6}
-              className="mr-1.5 h-8 w-8 items-center justify-center rounded-full bg-black/25"
+              className="flex-row items-center rounded-full bg-black/25 px-2.5 py-1.5"
             >
-              <Ionicons name="log-out-outline" size={14} color="#FFFFFF" />
+              <Ionicons name="log-out-outline" size={13} color="#FFFFFF" />
+              <Text className="ml-1 text-[9px] font-bold text-white">Çıkış Yap</Text>
             </Pressable>
-          ) : null}
-          <Pressable
-            onPress={toggleRole}
-            accessibilityRole="button"
-            accessibilityLabel="Kullanıcı rolünü değiştir"
-            className="flex-row items-center rounded-full bg-black/25 px-2.5 py-1.5"
-          >
-            <Ionicons name="swap-horizontal" size={12} color={palette.accent} />
-            <Text className="ml-1 text-[9px] font-bold text-white">
-              {isAdmin ? 'Müşteri' : 'Admin'}
-            </Text>
-          </Pressable>
+          ) : (
+            <Pressable
+              onPress={toggleRole}
+              accessibilityRole="button"
+              accessibilityLabel="Kullanıcı rolünü değiştir"
+              className="flex-row items-center rounded-full bg-black/25 px-2.5 py-1.5"
+            >
+              <Ionicons name="swap-horizontal" size={12} color={palette.accent} />
+              <Text className="ml-1 text-[9px] font-bold text-white">
+                {isAdmin ? 'Müşteri' : 'Admin'}
+              </Text>
+            </Pressable>
+          )}
         </View>
       </View>
 

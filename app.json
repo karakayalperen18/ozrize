@@ -1,23 +1,32 @@
 {
   "expo": {
-    "name": "B2B Toptan Ticaret",
+    "name": "Ozrize B2B",
     "slug": "b2b-wholesale-quote-app",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "b2bquote",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#536E27"
+    },
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ozrize.b2bwholesale"
+      "bundleIdentifier": "com.ozrize.b2bwholesale",
+      "icon": "./assets/icon.png"
     },
     "android": {
       "package": "com.ozrize.b2bwholesale",
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#536E27"
       }
     },
     "web": {
+      "favicon": "./assets/logo.jpg",
       "bundler": "metro"
     },
     "plugins": [],
