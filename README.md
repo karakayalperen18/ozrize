@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # B2B Toptan Ticaret & Teklif Yönetimi (Expo)
 
 Kurumsal B2B toptan satış firması için **müşteri portalı** ve **çalışan/yönetici onay paneli** içeren, tek kod tabanından iOS, Android ve web'e çıkan mobil uygulama.
@@ -222,3 +223,6 @@ cp .env.example .env
 ## 10. Kapsam dışı (bilinçli olarak yok)
 
 OCR/PDF dönüştürme, AI talep tahmini ve öneri motoru, akıllı çapraz satış widget'ları, ERP/WMS entegrasyonu (Logo, Mikro, SAP, Nebim), saha temsilcisi GPS/check-in/rota, barkod-QR okuma ve Excel/CSV toplu içe aktarma modülleri bu kod tabanında **uygulanmamıştır** — ilgili state, UI veya mock API bulunmaz.
+=======
+# ozrize
+>>>>>>> 7de807a99689f6146d6a3038a5a940463c8cc11d
